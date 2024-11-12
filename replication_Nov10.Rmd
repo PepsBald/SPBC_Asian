@@ -1,0 +1,1078 @@
+
+---
+title: "SEER-Stat BC survivors & second primaries by Race subgroups (2024_June 9)"
+author: Eunji
+output: 
+ html_document:
+  code_folding: hide
+  toc: true
+  toc_depth: 3  				# upto three depths of headings (specified by #, ## and ###)
+  number_sections: true 	# if you want number sections at each table header
+  theme: united 
+---
+
+
+## Modifications in this edition: 
+1. SPC (after 1 year rather than 6 months) 
+
+2. Exclude stage IV patients using a recoded AJCC/Combined_Summary_Stage/EOD variable
+
+3. Use the most recent SPC (for SPBC and SBC)
+
+4. Rename Indian into Indian/Pakistani
+
+# Data from SEET*Stat software
+```{r}
+
+library(prodlim)
+library(dplyr)
+library(survival)
+library(survminer)
+library(tidyverse)
+library(data.table)
+library(cmprsk)
+library(gridExtra)
+library(stringr)
+
+## 1. SPC (after 1 year rather than 6 months) 
+## 2. Exclude stage IV patients using a recoded AJCC/Combined_Summary_Stage/EOD variable
+## 3. Use the most recent SPC (for SPBC and SBC)
+## 4. Rename Indian into Indian/Pakistani
+
+
+load("BC_2000_2020_17R.RData")
+
+
+
+table(bc$Year_of_diagnosis)
+#  2000  2001  2002  2003  2004  2005  2006  2007  2008  2009  2010  2011  2012  2013  2014  2015  2016  2017  2018  2019  2020 
+# 56208 57779 58092 56582 58316 59111 60383 63511 65390 67014 66435 69053 70158 72090 73424 75526 75525 77326 78591 81013 73306 
+
+
+
+
+bc$age.dx <- substr(bc$Agerecodewithsingle_ages_and_90, 1, 2)
+bc$age.dx <- as.numeric(as.character(bc$age.dx))
+bc$yr.dx <- bc$Year_of_diagnosis
+
+#table(bc$Survival_months, useNA="always")
+bc$Survival_months[ bc$Survival_months == "Unknown"] <- "9999"
+bc$Survival_months <- as.numeric(as.character(bc$Survival_months))
+
+bc$Survival_months[ bc$Survival_months == 9999] <- NA
+summary(bc$Survival_months)
+   # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+   # 0.00   29.00   72.00   86.81  134.00  251.00    6069 
+
+# Please remove those without any survival month information
+bc1 <- subset(bc, !is.na(Survival_months)); dim(bc); dim(bc1); length(unique(bc$Patient_ID))
+# [1] 1414833     241
+# [1] 1408764     241
+# [1] 1154081
+
+bc1.1 <- subset(bc1, Sex != "Male")
+dim(bc1.1); length(unique(bc1.1$Patient_ID))
+# [1] 1396862     239
+# [1] 1139923
+
+
+bc1 <- bc1.1
+
+
+
+```
+
+# Any second primary cancers 
+SPBC: after 6-month, and contra-lateral cancer only
+SPC: after 6-month
+```{r}
+
+# Identify the first BC (Keep those with other cancer before BC)
+
+bc1$icd1 <- substr(bc1$Primary_Site_labeled, 1, 5) 
+
+bc1$icd2 <- substr(bc1$Primary_Site_labeled, 1, 3); table(bc$icd2, useNA="always")
+   #  C00     C01     C02     C03     C04     C05     C06     C07     C08     C09     C10     C11     C12     C13     C14     C15     C16     C17     C18     C19     C20 
+   #  221     278     731     220     161     210     246     642     150     344      97     124      37      74      52     814    2470    1173   14328    1100    3287 
+   #  C21     C22     C23     C24     C25     C26     C30     C31     C32     C33     C34     C37     C38     C40     C41     C42     C44     C47     C48     C49     C50 
+   # 1090    1449     474     593    4486     270     142      94     596      20   23366     147     196     119     253   10862   18661      30     647    1534 1260699 
+   #  C51     C52     C53     C54     C55     C56     C57     C58     C60     C61     C62     C63     C64     C65     C66     C67     C68     C69     C70     C71     C72 
+   # 2654     527    1594   13795     266    4788     876       9       8     790      11       5    5493     525     363    5071     140     464    5990    1462     905 
+   #  C73     C74     C75     C76     C77     C80    <NA> 
+   # 7675      81    1163     110    5347    2234       0 
+
+## NOTE: Modify documentation from here
+## bc2: any first BC
+bc2 <- filter(bc1, icd2 == "C50") 
+dim(bc2) 
+# [1] 1255206     241
+
+table(bc2$Sequence_number, useNA="always")
+
+
+    ## bc2.1: One primary
+      bc2.1 <- subset(bc2, Sequence_number == "One primary only"); dim(bc2.1); length(unique(bc2.1$Patient_ID))
+      bc2.1$numBC <- 1
+        # [1] 837578    241
+        # [1] 837578
+      
+    ## bc2.2: > 1 primary
+      id1 <- bc2.1$Patient_ID
+      bc2.2 <- bc2 |>
+        filter( !Patient_ID %in% id1)
+      
+      dim(bc2.1)
+        # [1] 837578    242 bc2.1: this is everyone with one primary <-- breast cancer
+      dim(bc2.2)
+        # [1] 408516    241 bc2.2: this is everyone with (no matching patient id in the group seq_number == one primary --> with multiple primaries) <-- breast cancer
+      
+      length(unique(bc2.2$Patient_ID))
+        # [1] 302139 unique pt ids in bc2.2
+      
+					dd <- bc2.2[c("Patient_ID")]
+					sum(duplicated(dd$Patient_ID))
+				# [1] 106377 duplicate pt ids in bc2.2	
+					
+					k <- dd |>
+					  group_by_all() |>
+					  count()
+					
+					table(k$n)
+          #      1      2      3      4      5      6 
+          # 201101  96002   4754    263     17      2 
+					# <--- 201101 has one BC (other primaries are non BC), 96002 had two BCs
+					
+					table_bc2.2_dup <- table(k$n)
+					sum(as.numeric(names(table_bc2.2_dup))*as.vector(table_bc2.2_dup))
+					# [1] 408516 <--- add up to total patients in bc2.2 duplicates
+					
+					k$numBC <- k$n
+          k$n <- NULL
+          
+      bc2.2 <- merge(bc2.2, k, by = "Patient_ID"); table(bc2.2$numBC, useNA="always")
+          #      1      2      3      4      5      6   <NA> 
+          # 201101 192004  14262   1052     85     12      0  
+          # <--- 201101 has one BC
+      
+      ## a: pts with with one BC (but possibly multiple primaries)
+          a <- subset(bc2.2, numBC==1); dim(a) # [1] 201101    242
+          
+          
+          
+   ##################################################################          
+   ##################################################################   
+          
+          
+      ## one.bc: combining pts with just one primary (which is BC) and pts with one 
+      ## BC (but possibly multiple primaries)
+      one.bc <- rbind(bc2.1, a); dim(bc2.1); dim(a); dim(one.bc); table(one.bc$numBC)
+      # [1] 837578    242
+      # [1] 201101    242
+      # [1] 1038679     242
+          
+      ## many.bc: patients with multiple primaries (many of which are BC)
+          id2 <- a$Patient_ID
+      many.bc <- bc2.2 %>% filter( !Patient_ID %in% id2); dim(bc2.2); dim(many.bc); length(unique(many.bc$Patient_ID)); table(many.bc$numBC, useNA="always")
+        # [1] 408516    242
+        # [1] 207415    242
+        # [1] 101038
+        # 
+        #      2      3      4      5      6   <NA> 
+        # 192004  14262   1052     85     12      0 				
+      
+      ## many.bc_first: a subset of many.bc that sorts out the first PBC
+      many.bc_first <- many.bc %>%
+        group_by(Patient_ID) %>%
+        arrange(age.dx) %>%
+        filter(row_number()==1) %>%
+        mutate(first.bc = 1)
+      
+      ## many.bc_many: a subset of many.bc that sorts out all subsequent PBC, a complement of
+      ## many.bc_first
+      many.bc_multi <- many.bc %>%
+        group_by(Patient_ID) %>%
+        arrange(age.dx) %>%
+        filter(row_number()>1) %>%
+        mutate(first.bc = 0)
+      
+      dim(many.bc); dim(many.bc_first); dim(many.bc_multi)
+      many.bc1 <- rbind(many.bc_first, many.bc_multi)
+      
+                  many.bc_multi1 <- many.bc_multi[c("Patient_ID", "age.dx","Survival_months", "yr.dx", "icd2", "Laterality", "Breast_Subtype_2010","Behavior_code_ICD_O_3")]
+                  many.bc_multi1$age.dx1 <- many.bc_multi1$age.dx
+                  many.bc_multi1$Survival_months1 <- many.bc_multi1$Survival_months
+                  many.bc_multi1$yr.dx1 <- many.bc_multi1$yr.dx
+                  many.bc_multi1$icd.sx <- many.bc_multi1$icd2
+                  many.bc_multi1$Laterality.sx <- many.bc_multi1$Laterality
+                  many.bc_multi1$subtype.sx <- many.bc_multi1$Breast_Subtype_2010
+                  many.bc_multi1$behavior.sx <- many.bc_multi1$Behavior_code_ICD_O_3
+                  
+                  many.bc_multi1$age.dx <- NULL
+                  many.bc_multi1$Survival_months <- NULL
+                  many.bc_multi1$yr.dx <- NULL
+                  many.bc_multi1$icd2 <- NULL
+                  many.bc_multi1$Laterality  <- NULL
+                  many.bc_multi1$Breast_Subtype_2010  <- NULL
+                  many.bc_multi1$Behavior_code_ICD_O_3  <- NULL
+
+              ## a (version 2): combines info from subsequent PBCs with info from first PBC in many.bc 
+                  a <- merge(many.bc_multi1, many.bc_first, by = "Patient_ID", all.x=T); dim(many.bc_multi1); dim(a)
+                  # [1] 106377      8
+                  # [1] 106377    250
+                
+              ## a1: a subset of a (version 2): includes pts whose PBCs are in the left or right breast        
+                  a1 <- subset(a, Laterality == "Left - origin of primary" | Laterality == "Right - origin of primary"); dim(a); dim(a1)
+                  a1$laterality.differ <- ifelse(a1$Laterality != a1$Laterality.sx, 1, 0); table(a1$laterality.differ, useNA="always") 
+                  #     0     1  <NA> 
+                  # 26275 80004     0 
+                  
+                  
+                  # Identify SPBC (1. Differet laterality & 2. after 6-month)   
+                  a1$t.diff <- a1$Survival_months - a1$Survival_months1 ; summary(a1$t.diff)
+                  
+              ## Create the AJCC/EOD/combined summary stage staging variable
+              ## below are level vectors for 2016-2020 (2016-2017 and 2018+ variables share same level names), 2004-2015, and 2000-2003 respectively
+          geq2016 <- c("0", "1A", "1B", "2A", "2B", "3A", "3B", "3C", "4")
+          leq2016 <- c("0", "I", "IIA", "IIB", "IIIA", "IIIB", "IIIC", "IIINOS", "IV")
+          leq2003 <- c("Stage 0", "10", "21", "22", "31", "32", "40", "88", "90", "98")
+          
+  spbc <- spbc |> 
+    mutate(AJCC_EOD_CombSummStg_Combined = case_when(
+        Year_of_diagnosis >= 2018 ~ case_when(
+            DerivedEOD2018_Stage_Group_2018 %in% geq2016[1]  ~ 0,
+            DerivedEOD2018_Stage_Group_2018 %in% geq2016[2:3] ~ 1,
+            DerivedEOD2018_Stage_Group_2018 %in% geq2016[4:5] ~ 2,
+            DerivedEOD2018_Stage_Group_2018 %in% geq2016[6:8] ~ 3,
+            DerivedEOD2018_Stage_Group_2018 %in% geq2016[9] ~ 4, 
+            TRUE ~ NA
+        ),
+        Year_of_diagnosis >= 2016 ~ case_when(
+            DerivedSEERCmbStg_Grp_2016_2017 %in% geq2016[1]  ~ 0,
+            DerivedSEERCmbStg_Grp_2016_2017 %in% geq2016[2:3] ~ 1,
+            DerivedSEERCmbStg_Grp_2016_2017 %in% geq2016[4:5] ~ 2,
+            DerivedSEERCmbStg_Grp_2016_2017 %in% geq2016[6:8] ~ 3,
+            DerivedSEERCmbStg_Grp_2016_2017 %in% geq2016[9] ~ 4, 
+            TRUE ~ NA
+        ),
+        Year_of_diagnosis >= 2004 ~ case_when(
+            DerivedAJCCStageGroup6thed20042 %in% leq2016[1]  ~ 0,
+            DerivedAJCCStageGroup6thed20042 %in% leq2016[2] ~ 1,
+            DerivedAJCCStageGroup6thed20042 %in% leq2016[3:4] ~ 2,
+            DerivedAJCCStageGroup6thed20042 %in% leq2016[5:8] ~ 3,
+            DerivedAJCCStageGroup6thed20042 %in% leq2016[9] ~ 4, 
+            TRUE ~ NA
+        ),
+        TRUE ~ case_when(
+          AJCCstage_3rd_edition_1988_2003 %in% leq2003[1] ~ 0,
+          AJCCstage_3rd_edition_1988_2003 %in% leq2003[2] ~ 1,
+          AJCCstage_3rd_edition_1988_2003 %in% leq2003[3:4] ~ 2,
+          AJCCstage_3rd_edition_1988_2003 %in% leq2003[5:6] ~ 3,
+          AJCCstage_3rd_edition_1988_2003 %in% leq2003[7] ~ 4,
+          TRUE ~ NA
+        )
+    ))
+          
+
+     table(spbc$AJCC_EOD_CombSummStg_Combined, useNA = "ifany")
+
+    ## 0     1     2     3     4  <NA> 
+    ## 7911 15283 10064  2405   439  1515 <---- all pts with unknown staging/NA staging/etc
+    
+                  
+              ## spbc: a subset of a1, which includes pts with multiple SPBCs, 
+              ## with survival > 12 months and laterality different in between PBC diagnosises;
+                  spbc <- subset(a1, t.diff > 12 & laterality.differ == 1); dim(a1); dim(spbc); length(unique(spbc$Patient_ID))
+                  # [1] 106279    252
+                  # [1] 37617   252
+                  # [1] 36903
+                  
+                  
+                  spbc[1:5,1:10]
+                  spbc1 <- spbc[c(1:5,8)]
+              ## spbc1: a subcolumned spbc with ordered pt_ID and survival months    
+                  spbc1 <- spbc1[order(spbc1$Patient_ID, -spbc1$Survival_months1),]
+              ## spbc2: subset of spbc2 taking out all duplicates, only spbc that is TEMPORALLY FURTHEST from now is kept
+              
+              ## CHECKING THE ABOVE:
+                  q1 <- spbc1 |>
+                    group_by(Patient_ID) |>
+                    filter(n() >= 2) |>
+                    ungroup()
+                  
+                  head(q1, n = 4)
+              ##   Patient_ID age.dx1 Survival_months1 yr.dx1 icd.sx behavior.sx
+              ##       <int>   <dbl>            <dbl>  <int> <chr>  <chr>      
+              ## 1     354032      62              113   2011 C50    Malignant  
+              ## 2     354032      66               69   2015 C50    Malignant  
+              ## 3     427400      73               42   2017 C50    In situ   
+                  
+                  spbc2 <- spbc1[!duplicated(spbc1[c("Patient_ID")]),]
+                  
+              ## CHECKING AGAIN:
+                  
+                  spbc2[spbc2$Patient_ID == 354032,]
+              ##     Patient_ID age.dx1 Survival_months1 yr.dx1 icd.sx behavior.sx
+              ## 161     354032      62              113   2011    C50   Malignant 
+      
+      dim(one.bc); dim(many.bc_first); dim(spbc2)
+        # [1] 1038679     242
+        # [1] 101038    243
+        # [1] 36903     6
+      one.bc$first.bc <- 1 
+      
+    ## all.bc: a combination of one.bc and many.bc_first, baseline BC (first, BC)  
+      all.bc <- bind_rows(one.bc, many.bc_first) ## <==== BASELINE BC / Link w SPBC2 later as an outcome
+      dim(all.bc); length(unique(all.bc$Patient_ID))
+        # [1] 11s39717     243
+        # [1] 1139717       
+            
+      
+        
+
+# Other SPC
+
+## oc: all cases with other SPC
+oc <- subset(bc1, icd2 != "C50"); dim(oc) ; length(unique(oc$Patient_ID))
+# [1] 150768    241
+# [1] 132156
+
+
+oc$age.dx1 <- oc$age.dx
+oc$Survival_months1 <- oc$Survival_months
+oc$yr.dx1 <- oc$yr.dx
+oc$icd.sx <- oc$icd2
+oc$behavior.sx <- oc$Behavior_code_ICD_O_3
+oc1 <- oc[c("Patient_ID", "age.dx1", "Survival_months1","yr.dx1", "icd.sx", "behavior.sx")]; dim(oc1)
+
+## oc2: all cases with other SPC combined with bc info
+oc2 <- merge(oc1, all.bc, by = "Patient_ID", all.x=T); dim(oc1); dim(oc2) 
+oc2$t.diff <- oc2$Survival_months - oc2$Survival_months1 ; summary(oc2$t.diff)
+#    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+# -250.00  -18.00   21.00   25.74   80.00  250.00     225 
+
+      ## spc: all cases with other SPC combined with bc info conditioned on bc first occurrence
+       spc <- subset(oc2, t.diff > 12); dim(oc2); dim(spc); length(unique(spc$Patient_ID))
+        # [1] 150768    249
+        # [1] 82229   249
+        # [1] 74273
+      
+       
+       
+       #spc[c(1:3, 43, 44)][1:10,]
+       spc1 <- spc[c("Patient_ID", "age.dx1", "Survival_months1","yr.dx1", "icd.sx", "behavior.sx")]
+       
+       ## only SPC that is TEMPORALLY FURTHEST from now is kept
+       spc1 <- spc1[order(spc1$Patient_ID, -spc1$Survival_months1),]
+       
+       spc1 <- spc1[!duplicated(spc1[c("Patient_ID")]),]
+      
+       sum(duplicated(spc1$Patient_ID))
+       ## [1] 0
+       
+       
+       
+       ### all spc ( SPBC + SPC)
+       
+      ## ss: all secondary cancers, spbc2 and spc1
+       ss <- rbind(spbc2, spc1); dim(spbc2); dim(spc1); dim(ss) 
+          # [1] 36903     6
+          # [1] 74273     6
+          # [1] 111176      6  
+       length(unique(ss$Patient_ID)) # [1] 106810 (Different because we have pts with both SPC (non BC) and SPBC)
+       
+       ss <- ss[order(ss$Patient_ID, ss$Survival_months1),]; View(ss)
+       
+      ## CHECKING (since this is done above) ss1: all secondary cancers, spbc2 and spc1, removing duplicates with same id and icd.sx
+       ss1 <- ss[!duplicated(ss[c("Patient_ID", "icd.sx")]),]; dim(ss); dim(ss1) 
+        # [1] 111176      6
+        # [1] 111176      6
+
+       head(ss1,10)
+        #    Patient_ID age.dx1 Survival_months1 yr.dx1 icd.sx behavior.sx
+        # 5         1037      63               18   2019    C44   Malignant
+        # 84        2605      63               47   2017    C54   Malignant <-----
+        # 4         2605      61               70   2015    C50   Malignant <----- intended as previous version
+        # 11        3909      87                8   2016    C49   Malignant
+        # 121       5019      90                0   2017    C80   Malignant
+        # 15        5597      90               57   2015    C44   Malignant
+        # 17        6377      64               13   2019    C20   Malignant
+        # 8         7723      72                7   2020    C50   Malignant
+        # 19        8295      77               35   2008    C54   Malignant
+        # 202       8534      84                1   2019    C67   Malignant
+
+       
+```
+
+# Event and Time 
+```{r}
+
+all <- merge(ss1, all.bc, by = "Patient_ID", all.y = T); dim(ss1); dim(all.bc); dim(all)
+# [1] 124154      6
+# [1] 1139717     243
+# [1] 1150117     248
+
+all$spc <- ifelse( !is.na(all$age.dx1), 1, 0); table(all$spc, useNA="always")
+  #       0       1    <NA> 
+  # 1025963  124154       0 
+
+
+
+
+
+# Cumulative incidence by some factors
+
+# 0: censor, 1: SPC, 2: competing death
+all$event <- ifelse(all$spc == 1, 1, 
+             ifelse(all$Year_of_death_recode != "Alive at last contact", 2, 0)); table(all$event, useNA="always")
+              #      0      1      2   <NA> 
+              # 730772 124154 295191      0 
+
+all$yr.death <- all$Year_of_death_recode
+all$yr.death[ all$Year_of_death_recode == "Alive at last contact"] <- "" 
+all$yr.death <- as.numeric(as.character(all$yr.death))
+
+
+all$Time <- ifelse(all$event == 1, (all$Survival_months - all$Survival_months1)/12,
+            ifelse(all$event == 2, all$Survival_months/12, all$Survival_months/12)); summary(all$Time)
+    #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    # 0.000   2.500   5.917   7.155  11.000  20.917 
+# min is 0 here because some pts die in the first month after diagnosis
+
+
+all$event.death <- ifelse(all$Year_of_death_recode != "Alive at last contact", 1, 0)
+all$Time.death <- all$Survival_months/12
+
+dim(all)
+# [1] 1150117     254
+
+#######################
+# Time to event.spc
+#######################
+
+plot1 <- ggplot(all, aes(x = as.factor(event), y = Time, fill = as.factor(event))) + 
+geom_boxplot(outlier.size = 0.5,
+             outlier.colour = "black") +
+labs(title = "Time to SPC vs. Event Type",
+     x = "Time to SPC",
+     y = "Time of Event (years)",
+     fill = "Event Type") +
+scale_x_discrete(labels = c("0" = "censored", "1" = "SPC", "2" = "competing death")) +
+scale_fill_manual(values = c("0" = "coral", "1" = "cadetblue", "2" = "darkgreen")) +
+theme_bw()
+
+plot2 <- ggplot(all, aes(x = as.factor(event), y = Time.death, fill = as.factor(event))) + 
+geom_boxplot(outlier.size = 1.0,
+             outlier.colour = "black") +
+labs(title = "Survival Time vs. Event Type",
+     x = "Event Type",
+     y = "Survival Time (years)",
+     fill = "Event Type") +
+scale_x_discrete(labels = c("0" = "censored", "1" = "SPC", "2" = "competing death")) +
+scale_fill_manual(values = c("0" = "coral", "1" = "cadetblue", "2" = "darkgreen")) + 
+theme_bw()
+
+grid.arrange(plot1, plot2, ncol = 2)
+
+summary(all$Time)
+summary(all$Time.death)
+
+```
+
+# Descriptive analysis for SPC 
+```{r}
+
+##########################
+# Frequent type of SPC
+##########################
+
+table(all$icd.sx, useNA="always")
+
+
+tab <- table(all$icd.sx, useNA="always")
+
+sorted_tab <- tab %>% 
+  as.data.frame() %>% 
+  arrange(desc(Freq))
+sorted_tab[1:10, ]
+## ERROR: Dr. Choi results
+    #    Var1    Freq
+    # 1  <NA> 1033727
+    # 2   C50   39509 <--- No. 1 SPC type (Breast) same host susceptibility, lifestyle, treatment, etc.
+    # 3   C34   14924 <--- No. 2 SPC type (Lung)
+    # 4   C44    8764 <-- Neoplasm of skin cancer
+    # 5   C18    7451 <-- Neoplasm of colon cancer
+    # 6   C42    7096 <-- Neoplasm of bone and articular cartilage
+    # 7   C54    6538 <-- Malignant neoplasm of corpus uteri.
+    # 8   C25    3763 <-- Malignant neoplasm of pancreas.
+    # 9   C73    3372 <-- Malignant neoplasm of thyroid gland 
+    # 10  C70    3235 <-- Malignant neoplasm of meninges.
+
+sorted_tab[1:10, ]
+## ERROR: my result
+    #    Var1    Freq
+    # 1  <NA> 1025963
+    # 2   C50   39426
+    # 3   C34   14785
+    # 4   C44    8660
+    # 5   C18    7385
+    # 6   C42    6991
+    # 7   C54    6538
+    # 8   C25    3725
+    # 9   C73    3363
+    # 10  C70    3230
+
+all$icd.sx1 <- ifelse(all$icd.sx=="C50", "BC", 
+               ifelse(all$icd.sx=="C34", "LC", 
+               ifelse(all$icd.sx=="C44", "Skin",
+               ifelse(all$icd.sx=="C18", "Colon",
+               ifelse(all$icd.sx=="C42", "Bone",
+               ifelse(all$icd.sx=="C54", "Uteri",
+               ifelse(all$icd.sx=="C25", "Pancreas", 
+               ifelse(all$icd.sx=="C73", "Thyroid", 
+               ifelse(all$icd.sx=="C70", "Meninges", "OtherSPC")))))))))
+
+
+all$stage.ix <- ifelse(all$Combined_Summary_Stage_2004 == "In situ", "0.In situ", 
+                ifelse(all$Combined_Summary_Stage_2004 == "Localized", "1.Local",
+                ifelse(all$Combined_Summary_Stage_2004 == "Regional", "2.Region",
+                ifelse(all$Combined_Summary_Stage_2004 == "Distant", "3. Distant", NA))))
+
+length(all$icd.sx[is.na(all$icd.sx)])
+
+tab <- table(all[all$stage.ix != "0.In situ",]$icd.sx, useNA="always")
+
+sorted_tab <- tab %>% 
+  as.data.frame() %>% 
+  arrange(desc(Freq))
+sorted_tab[1:10, ]
+    #    Var1    Freq
+    # 1  <NA> 1056575
+    # 2   C50   19882
+    # 3   C34    9555
+    # 4   C44    6040
+    # 5   C18    4655
+    # 6   C42    4631
+    # 7   C54    4079
+    # 8   C25    2468
+    # 9   C73    2425
+    # 10  C70    2325
+
+dim(all)
+
+```
+
+# Incidence by race
+```{r}
+
+##########################
+# Cumulative incidence
+##########################
+
+# Cumulative incidence of "second cancers" after initial breast cancer 
+all$event1 <- ifelse(all$event == 2, 0, 
+              ifelse(all$event == 0, 0, 
+              ifelse(all$icd.sx=="C50", "BC", 
+              ifelse(all$icd.sx=="C34", "LC", 
+              ifelse(all$icd.sx=="C44", "Skin",
+              ifelse(all$icd.sx=="C18", "Colon",
+              ifelse(all$icd.sx=="C42", "Bone",
+              ifelse(all$icd.sx=="C54", "Uteri",
+              ifelse(all$icd.sx=="C25", "Pancreas", 
+              ifelse(all$icd.sx=="C73", "Thyroid", 
+              ifelse(all$icd.sx=="C70", "Meninges", "OtherSPC")))))))))))
+all$event2 <- ifelse(all$event == 2, 0, all$event1)
+
+# [1] 1150117     258
+# SAVE:all
+
+library(cmprsk)
+CR <- cuminc(ftime = all$Time, 
+             fstatus = all$event2, 
+             cencode = 0)
+p <- ggcompetingrisks(CR,
+                 multiple_panels = F, 
+                 xlab = "Year", 
+                 ylab = "Cumulative incidence",
+                 title = "Cumulative incidence of second primaries after initial breast cancer");
+
+# Exclusing in situ
+CR <- cuminc(ftime = all[all$stage.ix != "0.In situ",]$Time, 
+             fstatus = all[all$stage.ix != "0.In situ",]$event2, 
+             cencode = "0")
+p <- ggcompetingrisks(CR,
+                 multiple_panels = F, 
+                 xlab = "Year", 
+                 ylab = "Cumulative incidence",
+                 title = "Cumulative incidence of second primaries after initial breast cancer"); p
+
+
+
+
+# Cumulative incidence of "outcome of interest and competing events" among entire cohort
+all1 <- subset(all, stage.ix != "0.In situ"); dim(all); dim(all1)
+# [1] 1150117     258
+# [1] 907563    258
+
+
+
+
+# all1$event.screen: screens out the most common SPCs: breast, lung, colorectal, cervix, / stomach, liver 
+all1$event.screen <- ifelse(all1$icd.sx == "C50" | all1$icd.sx == "C34" | all1$icd.sx == "C18" | all1$icd.sx == "C19" | all1$icd.sx == "C20" | all1$icd.sx == "C53", 1, 
+                     ifelse(all1$event.death==1, 2, 0))
+table(all1$event.screen, useNA="always")
+
+all1$event.screen[ is.na(all1$event.screen) & all1$event == 0 ] <- 0 
+all1$event.screen[ is.na(all1$event.screen) & all1$event == 2 ] <- 2
+table(all1$event.screen, useNA="always")
+
+
+dim(all1)
+# [1] 907563    259
+
+
+table(all1$event)
+    fit1 = prodlim(Hist(Time,event)~1, data=all1)
+    plot(fit1, cause=1, type="cuminc", ylim=c(0,0.50), atrisk = F) #, atrisk.at=c(0, 5,10,15,20), marktime=T)
+
+    
+table(all$OriginrecodeNHIAHispanicNonHisp, useNA = "always")
+table(all1$Race_recode_W_B_AI_API, useNA = "always")
+    
+all1$race1 <- ifelse(all1$OriginrecodeNHIAHispanicNonHisp == "Spanish-Hispanic-Latino", "Hispanic",
+              ifelse(all1$Race_recode_W_B_AI_API == "White", "White",
+              ifelse(all1$Race_recode_W_B_AI_API == "Black", "Black", 
+              ifelse(all1$Race_recode_W_B_AI_API == "Asian or Pacific Islander", "Asian","Other"))))
+    
+    fit1 = prodlim(Hist(Time,event)~race1, data=all1)
+    plot(fit1, cause=1, type="cuminc", ylim=c(0,0.2), atrisk = F) #, atrisk.at=c(0, 5,10,15,20), marktime=T)
+          
+
+table(all1$Race_ethnicity)
+    
+all1$race_sub <- ifelse(all1$Race_ethnicity == "Filipino", "Filipino",
+                ifelse(all1$Race_ethnicity == "Chinese", "Chinese",
+                ifelse(all1$Race_ethnicity == "Japanese", "Japanese",
+                ifelse(all1$Race_ethnicity == "Korean (1988+)", "Korean", 
+                ifelse(all1$Race_ethnicity == "Vietnamese (1988+)", "Vietnamese",
+                ifelse(all1$Race_ethnicity == "Asian Indian (2010+)" | all1$Race_ethnicity == "Asian Indian or Pakistani, NOS (1988+)", "Indian", 
+                ifelse(all1$Race_recode_W_B_AI_API == "Asian or Pacific Islander", "Pacific", "OtherAsians")))))))
+    
+table(all1$Race_ethnicity, all1$race1)    
+
+
+# SAVE:all2
+all2 <- subset(all1, race1 == "Asian")
+
+
+     fit1 = prodlim(Hist(Time,event)~ race_sub, data=all2)
+     plot(fit1, cause=1, type="cuminc", ylim=c(0,0.2), atrisk = F) #, atrisk.at=c(0, 5,10,15,20), marktime=T)
+### 
+     
+    fit1 = prodlim(Hist(Time,event.screen)~race1, data=all1)
+    plot(fit1, cause=1, type="cuminc", ylim=c(0,0.1), atrisk = F) #, atrisk.at=c(0, 5,10,15,20), marktime=T)
+     
+     fit1 = prodlim(Hist(Time,event.screen)~ race_sub, data=all2)
+     plot(fit1, cause=1, type="cuminc", ylim=c(0,0.1), atrisk = F) #, atrisk.at=c(0, 5,10,15,20), marktime=T)
+
+     
+all1$chemo.ix <- ifelse(all1$Chemotherapy_recode_yes_no_unk == "Yes", 1, 0)
+all1$radio.ix <- ifelse(all1$Radiation_recode == "None/Unknown" | all1$Radiation_recode == "Recommended, unknown if administered" |
+                        all1$Radiation_recode == "Refused (1988+)" , 0, 1)
+
+        
+```
+
+
+# Survival impact of any SPC
+## Overall
+```{r}
+
+# 
+
+
+summary(all1$Time.death)
+  #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  # 0.000   1.417   3.250   3.624   5.667   8.917 
+
+## My results: 
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  # 0.000   2.417   5.583   6.460  10.000  16.917 
+
+# SAVE:all2 
+all2 <- subset(all1, Time.death > 0); dim(all1); dim(all2)
+  # [1] 907563    261
+  # [1] 896042    261
+  
+## My results: should be right because I checked the number of newly added variables
+## 263
+  # [1] 907563    263
+  # [1] 896042    263
+
+
+all3 <- subset(all2, (event == 1 & Time==Time.death) ==F ); dim(all2); dim(all3)
+  # [1] 896042    261
+  # [1] 892480    261
+  # all2$Time[ (all2$event==1) & (all2$Time == all2$Time.death) ] <- all2$Time[ (all2$event==1) & (all2$Time == all2$Time.death)  ] - 0.01 
+
+all3$Time[ all3$event == 0 ] <- all3$Time.death[ all3$event == 0 ]
+all3$Time[ all3$event == 2 ] <- all3$Time.death[ all3$event == 2 ]
+
+  all3 <-  all3[!duplicated(all3[c("Patient_ID")]),]
+  dim(all3) # [1] 887534    263
+
+
+table(all3$event)
+#      0      1      2 
+# 630547  67020 189967 
+
+
+pop <- tmerge(all3, all3, id=Patient_ID, death = event(Time.death, event.death)) 
+
+tdata <- with(pop, data.frame(ID = Patient_ID,
+                             Time.death = Time.death, # Time from baseline to event of interest
+                             Time = Time,             # Time from baseline to time-varying covariate
+                             event.death = event.death))        # event_death: outcome death variable  
+
+pop1 <- tmerge(pop, tdata, id=ID, spc.t = tdc(Time)); table(pop1$spc.t)
+#      0      1 
+# 887534  67020 
+
+
+
+a1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix + race1 + chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1, na.action = "na.omit", id=Patient_ID)
+
+ summary(a1)
+  #                          coef  exp(coef)   se(coef)  robust se       z Pr(>|z|)    
+  # spc.t               1.1611420  3.1935782  0.0068205  0.0088400 131.351  < 2e-16 ***
+  # age.dx              0.0537438  1.0552143  0.0001930  0.0002243 239.582  < 2e-16 ***
+  # stage.ix2.Region    0.7053857  2.0246275  0.0050893  0.0052178 135.188  < 2e-16 ***
+  # stage.ix3. Distant  2.3058097 10.0322980  0.0066540  0.0091890 250.931  < 2e-16 ***
+  # race1Black          0.6316723  1.8807530  0.0108915  0.0118312  53.390  < 2e-16 ***
+  # race1Hispanic       0.2707928  1.3110034  0.0114679  0.0122187  22.162  < 2e-16 ***
+  # race1Other          0.1311196  1.1401041  0.0273497  0.0289290   4.532 5.83e-06 ***
+  # race1White          0.2108318  1.2347047  0.0094384  0.0098330  21.441  < 2e-16 ***
+  # chemo.ix            0.0156630  1.0157864  0.0053031  0.0058562   2.675  0.00748 ** 
+  # radio.ix           -0.4174212  0.6587434  0.0045358  0.0046804 -89.185  < 2e-16 ***
+ 
+ all3$event.death <- as.integer(as.character(all3$event.death))
+ 
+  a2.1 <- coxph(Surv(Time.death, event.death) ~ spc  , data = all3)
+  summary(a2.1)
+      
+    #   n= 887534, number of events= 216603 
+    # 
+    #         coef exp(coef) se(coef)     z Pr(>|z|)    
+    # spc 0.187266  1.205949 0.006556 28.56   <2e-16 ***
+
+  
+  a2.2 <- coxph(Surv(Time.death, event.death) ~ spc + age.dx + stage.ix + race1 + chemo.ix + radio.ix , data = all3)
+  summary(a2.2)
+    #                           coef  exp(coef)   se(coef)       z Pr(>|z|)    
+    # spc                 0.1708019  1.1862558  0.0065795  25.960  < 2e-16 ***
+    # age.dx              0.0546899  1.0562130  0.0001926 283.953  < 2e-16 ***
+    # stage.ix2.Region    0.7024971  2.0187875  0.0050881 138.068  < 2e-16 ***
+    # stage.ix3. Distant  2.3115487 10.0900386  0.0066544 347.372  < 2e-16 ***
+    # race1Black          0.6418564  1.9000047  0.0108917  58.931  < 2e-16 ***
+    # race1Hispanic       0.2728488  1.3137016  0.0114679  23.792  < 2e-16 ***
+    # race1Other          0.1220909  1.1298568  0.0273499   4.464 8.04e-06 ***
+    # race1White          0.2213025  1.2477008  0.0094379  23.448  < 2e-16 ***
+    # chemo.ix            0.0152537  1.0153706  0.0053045   2.876  0.00403 ** 
+    # radio.ix           -0.4140007  0.6610005  0.0045368 -91.254  < 2e-16 ***
+  
+  
+  
+     plot1 <- ggadjustedcurves(a1, data=pop1, method="conditional",variable="spc")
+     plot1
+     
+ 
+ library(lmtest)
+
+a1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix + race1 + chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1, na.action = "na.omit", id=Patient_ID)
+
+a2 <- coxph(Surv(tstart, tstop, death) ~ spc.t*race1 + age.dx + stage.ix + race1 + chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1, na.action = "na.omit", id=Patient_ID)
+
+ lrtest(a1, a2)
+    # Model 1: Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix + race1 + 
+    #     chemo.ix + radio.ix
+    # Model 2: Surv(tstart, tstop, death) ~ spc.t + race1 + age.dx + stage.ix + 
+    #     chemo.ix + radio.ix + spc.t:race1
+    #   #Df   LogLik Df  Chisq Pr(>Chisq)    
+    # 1  10 -2709383                         
+    # 2  14 -2709350  4 65.818   1.73e-13 ***
+ 
+ 
+c1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix  + chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1=="Asian",], na.action = "na.omit", id=Patient_ID)
+
+c2 <- coxph(Surv(tstart, tstop, death) ~ spc.t*race_sub + age.dx + stage.ix + chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1=="Asian",], na.action = "na.omit", id=Patient_ID)
+summary(c2)
+
+ lrtest(c1, c2)
+    # Model 1: Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix + chemo.ix + 
+    #     radio.ix
+    # Model 2: Surv(tstart, tstop, death) ~ spc.t + race_sub + age.dx + stage.ix + 
+    #     chemo.ix + radio.ix + spc.t:race_sub
+    #   #Df  LogLik Df  Chisq Pr(>Chisq)    
+    # 1   6 -121691                         
+    # 2  18 -121661 12 60.299  1.991e-08 ***
+
+ 
+```
+
+## Asian vs. other races
+```{r}
+ 
+
+b1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian",], na.action = "na.omit", id=Patient_ID)
+b2 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Hispanic",], na.action = "na.omit", id=Patient_ID)
+b3 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Black",], na.action = "na.omit", id=Patient_ID)
+b4 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "White",], na.action = "na.omit", id=Patient_ID)
+
+summary(b1)$conf.int[1,]
+summary(b2)$conf.int[1,]
+summary(b3)$conf.int[1,]
+summary(b4)$conf.int[1,]  
+   
+
+    # > summary(b1)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.8072066  0.2626598  3.5464136  4.0871776  Asian
+
+    # > summary(b2)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #   3.594252   0.278222   3.391736   3.808860  Hispanic
+
+    # > summary(b3)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.4085177  0.2933827  3.2297146  3.5972196  Black
+
+    # > summary(b4)$conf.int[1,]  
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.0607855  0.3267135  3.0004223  3.1223632  White
+
+
+
+```
+  
+## Asian subgroups
+```{r}
+ 
+b1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" ,], na.action = "na.omit", id=Patient_ID)
+b2 <- coxph(Surv(tstart, tstop, death) ~ spc.t*race_sub + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian",], na.action = "na.omit", id=Patient_ID)
+ lrtest(b1, b2)
+    # Likelihood ratio test
+    # 
+    # Model 1: Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix + chemo.ix + 
+    #     radio.ix
+    # Model 2: Surv(tstart, tstop, death) ~ spc.t + race_sub + age.dx + stage.ix + 
+    #     chemo.ix + radio.ix + spc.t:race_sub
+    #   #Df  LogLik Df  Chisq Pr(>Chisq)    
+    # 1   6 -121691                         
+    # 2  18 -121661 12 60.299  1.991e-08 ***
+    # ---
+    # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1 
+ 
+ 
+
+b1 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Chinese",], na.action = "na.omit", id=Patient_ID)
+b2 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Filipino",], na.action = "na.omit", id=Patient_ID)
+b3 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Indian",], na.action = "na.omit", id=Patient_ID)
+b4 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Japanese",], na.action = "na.omit", id=Patient_ID)
+b5 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Korean",], na.action = "na.omit", id=Patient_ID)
+b6 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Pacific",], na.action = "na.omit", id=Patient_ID)
+b7 <- coxph(Surv(tstart, tstop, death) ~ spc.t + age.dx + stage.ix +  chemo.ix + radio.ix + cluster(Patient_ID),  # RX_Summ_Surg_Prim_Site_1998+ 
+            data = pop1[pop1$race1 == "Asian" & pop1$race_sub == "Vietnamese",], na.action = "na.omit", id=Patient_ID)
+
+
+summary(b1)$conf.int[1,]
+summary(b2)$conf.int[1,]
+summary(b3)$conf.int[1,]
+summary(b4)$conf.int[1,]  
+summary(b5)$conf.int[1,]  
+summary(b6)$conf.int[1,]  
+summary(b7)$conf.int[1,]  
+   
+
+
+    # > summary(b2)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.2570123  0.3070298  2.8359505  3.7405904  Filipino
+
+    # > summary(b4)$conf.int[1,]  
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.3541096  0.2981417  2.8077939  4.0067226  Japanese
+
+    # > summary(b3)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.5233021  0.2838247  2.6799765  4.6320024  Indian
+
+    # > summary(b5)$conf.int[1,]  
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  3.5447315  0.2821088  2.6940626  4.6640051  Korean
+
+    # > summary(b1)$conf.int[1,]
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  4.1843621  0.2389851  3.5370635  4.9501193  Chinese
+
+    # > summary(b6)$conf.int[1,]  
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  4.6828700  0.2135443  4.0267166  5.4459437  Pacific
+
+    # > summary(b7)$conf.int[1,]  
+    #  exp(coef) exp(-coef)  lower .95  upper .95 
+    #  6.1493704  0.1626183  4.7012944  8.0434776  Vietnamese
+
+
+```
+  
+
+
+
+
+
+## Sankey
+```{r}
+
+library(ggalluvial)
+library(paletteer)
+all2 <- subset(all, event==1)
+
+all2 %>%
+  mutate(initialBC = "IPBC",
+         icd.sx1 = factor(icd.sx1)) %>%
+  group_by(initialBC, icd.sx1) %>% count() %>%
+
+ggplot(aes(y = n, axis1 = initialBC, axis2 = icd.sx1)) +
+  geom_alluvium(aes(fill = icd.sx1), width = 1/12, show.legend = F) +
+  geom_stratum(width = 1/12, fill = "gray10", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("IPBC", "SPC"), expand = c(.05, .05)) +
+  scale_fill_manual(values=paletteer_d("ggsci::default_nejm")[1:10]) +
+  ggtitle("BC subtype in IPBC vs. SPC") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  ylab("Number of participants") +
+  theme(axis.title=element_text(size=12),
+        axis.text=element_text(size=12))
+
+
+
+###
+
+all2 <- subset(all, event==1 & stage.ix == "0.In situ")
+
+all2 %>%
+  mutate(initialBC = "IPBC",
+         icd.sx1 = factor(icd.sx1)) %>%
+  group_by(initialBC, icd.sx1) %>% count() %>%
+
+ggplot(aes(y = n, axis1 = initialBC, axis2 = icd.sx1)) +
+  geom_alluvium(aes(fill = icd.sx1), width = 1/12, show.legend = F) +
+  geom_stratum(width = 1/12, fill = "gray10", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("IPBC", "SPC"), expand = c(.05, .05)) +
+  scale_fill_manual(values=paletteer_d("ggsci::default_nejm")[1:10]) +
+  ggtitle("BC subtype in IPBC vs. SPC [among in situ IPBC]") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  ylab("Number of participants") +
+  theme(axis.title=element_text(size=12),
+        axis.text=element_text(size=12))
+
+
+###
+
+all2 <- subset(all, event==1 & stage.ix != "0.In situ")
+
+all2 %>%
+  mutate(initialBC = "IPBC",
+         icd.sx1 = factor(icd.sx1)) %>%
+  group_by(initialBC, icd.sx1) %>% count() %>%
+
+ggplot(aes(y = n, axis1 = initialBC, axis2 = icd.sx1)) +
+  geom_alluvium(aes(fill = icd.sx1), width = 1/12, show.legend = F) +
+  geom_stratum(width = 1/12, fill = "gray10", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("IPBC", "SPC"), expand = c(.05, .05)) +
+  scale_fill_manual(values=paletteer_d("ggsci::default_nejm")[1:10]) +
+  ggtitle("BC subtype in IPBC vs. SPC [among invasive IPBC]") +
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  ylab("Number of participants") +
+  theme(axis.title=element_text(size=12),
+        axis.text=element_text(size=12))
+
+
+```
+
+# Demographics
+```{r}
+
+all1 <- all
+
+all1$race <- ifelse(all1$OriginrecodeNHIAHispanicNonHisp == "Spanish-Hispanic-Latino", "Hispanic",
+             ifelse(all1$Race_recode_W_B_AI_API == "White", "White",
+             ifelse(all1$Race_recode_W_B_AI_API == "Black", "Black",
+             ifelse(all1$Race_recode_W_B_AI_API == "Asian or Pacific Islander", "Asian",  "Other"))))
+
+all1$radio.ix <- ifelse(all1$Radiation_recode == "None/Unknown" | all1$Radiation_recode == "Refused (1988+)" | all1$Radiation_recode == "Recommended, unknown if administered" , 0, 1)
+all1$chemo.ix <- ifelse(all1$Chemotherapy_recode_yes_no_unk == "Yes", 1, 0)
+
+all1$radio.ix <- as.factor(as.character(all1$radio.ix))
+all1$chemo.ix <- as.factor(as.character(all1$chemo.ix))
+
+all1$event.death <- as.factor(as.character(all1$event.death))
+
+all1$marry <- ifelse(all1$Marital_status_at_diagnosis == "Married (including common law)", "Married", "Other" )
+all1$hincome <- ifelse(all1$Medianhouseholdincomeinflationa == "< $35,000" | 
+                       all1$Medianhouseholdincomeinflationa == "$35,000 - $39,999" | 
+                       all1$Medianhouseholdincomeinflationa == "$40,000 - $44,999" | 
+                       all1$Medianhouseholdincomeinflationa == "$50,000 - $54,999" , "1.<55k",
+                ifelse(all1$Medianhouseholdincomeinflationa == "$55,000 - $59,999" | 
+                       all1$Medianhouseholdincomeinflationa == "$60,000 - $64,999" | 
+                       all1$Medianhouseholdincomeinflationa == "$65,000 - $69,999" | 
+                       all1$Medianhouseholdincomeinflationa == "$70,000 - $74,999" , "2.55k-75k", 
+                ifelse(all1$Medianhouseholdincomeinflationa == "$75,000+", ">75k", NA)))
+
+library(tableone)
+
+vars=c("Time","event.death", "Time.death",
+       "age.dx", "race", "stage.ix", "bc.subtype",
+       "radio.ix", "chemo.ix","marry","hincome")	
+tab1 = CreateTableOne(vars = vars, strata = c("event"), includeNA=T, data = all1) #, test=TRUE,testApprox = chisq.test)#testExact = fisher.test)
+tab1
+
+# all1$event <- as.factor(as.character(all1$event))
+# vars=c("Time","event", "Time.death",
+#        "age.dx", "race", "stage.ix", "bc.subtype",
+#        "radio.ix", "chemo.ix","marry","hincome")	
+# tab2 = CreateTableOne(vars = vars, strata = c("event.death"), includeNA=T, data = all1) #, test=TRUE,testApprox = chisq.test)#testExact = fisher.test)
+# tab2
+
+
+  
+```
+
+
+
+
+
